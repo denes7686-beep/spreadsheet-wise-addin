@@ -50,7 +50,7 @@ async function runAction(action) {
     await action();
   } catch (error) {
     console.error(error);
-    setStatus(`Error: ${error.message || error}`);
+    setStatus(formatError(error));
   } finally {
     toggleButtons(false);
   }
@@ -64,6 +64,34 @@ function toggleButtons(disabled) {
 
 function setStatus(message) {
   document.getElementById("statusMessage").textContent = message;
+}
+
+function formatError(error) {
+  const parts = [`Error: ${error.message || error}`];
+
+  if (error.code) {
+    parts.push(`Code: ${error.code}`);
+  }
+
+  if (error.debugInfo) {
+    if (error.debugInfo.errorLocation) {
+      parts.push(`Location: ${error.debugInfo.errorLocation}`);
+    }
+
+    if (error.debugInfo.statement) {
+      parts.push(`Statement: ${error.debugInfo.statement}`);
+    }
+
+    if (error.debugInfo.surroundingStatements) {
+      parts.push(`Context: ${error.debugInfo.surroundingStatements.join(" | ")}`);
+    }
+  }
+
+  if (error.stack) {
+    parts.push(`Stack: ${error.stack}`);
+  }
+
+  return parts.join("\n");
 }
 
 async function validateWorkbook() {
