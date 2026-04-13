@@ -153,7 +153,7 @@ async function updateFormats() {
       3,
       dateFormat
     );
-    transactions.getRange("D3:D10").numberFormat = [[currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat]];
+    transactions.getRange("C3:C10").numberFormat = [[currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat], [currencyFormat]];
 
     await context.sync();
     setStatus(`Formats applied.\nCurrency: ${currencySymbol}\nDate format: ${dateFormatLabel || "Month / Day / Year"}`);
