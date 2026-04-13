@@ -179,16 +179,14 @@ async function createNewInvoice() {
 async function submitInvoice() {
   await Excel.run(async (context) => {
     const workbook = context.workbook;
-    const activeSheet = workbook.worksheets.getActiveWorksheet();
+    let activeSheet = workbook.worksheets.getActiveWorksheet();
     const config = workbook.worksheets.getItem(SHEETS.configuration);
     const transactions = workbook.worksheets.getItem(SHEETS.transactions);
-    const statusRange = activeSheet.getRange(CELLS.draftStatus);
-    const lastInvoiceRange = config.getRange(CELLS.lastInvoiceNumber);
 
     activeSheet.load("name");
     workbook.worksheets.load("items/name");
-    statusRange.load("values");
-    lastInvoiceRange.load("values");
+    config.getRange(CELLS.lastInvoiceNumber).load("values");
+    activeSheet.getRange(CELLS.draftStatus).load("values");
     await context.sync();
 
     const sheetName = activeSheet.name;
@@ -196,9 +194,9 @@ async function submitInvoice() {
       throw new Error("Open an invoice sheet first.");
     }
 
-    let invoiceNumber = statusRange.values[0][0];
+    let invoiceNumber = activeSheet.getRange(CELLS.draftStatus).values[0][0];
     if (invoiceNumber === "DRAFT" || sheetName.startsWith("New Invoice")) {
-      const lastInvoiceNumber = Number(lastInvoiceRange.values[0][0] || 0);
+      const lastInvoiceNumber = Number(config.getRange(CELLS.lastInvoiceNumber).values[0][0] || 0);
       invoiceNumber = lastInvoiceNumber + 1;
       const nextSheetName = `Invoice ${invoiceNumber}`;
       const existingNames = workbook.worksheets.items.map((sheet) => sheet.name);
@@ -206,11 +204,14 @@ async function submitInvoice() {
         throw new Error(`Sheet ${nextSheetName} already exists.`);
       }
 
-      statusRange.values = [[invoiceNumber]];
+      activeSheet.getRange(CELLS.draftStatus).values = [[invoiceNumber]];
       activeSheet.name = nextSheetName;
-      lastInvoiceRange.values = [[invoiceNumber]];
-      statusRange.format.fill.color = "#ffffff";
-      statusRange.format.font.color = "#000000";
+      config.getRange(CELLS.lastInvoiceNumber).values = [[invoiceNumber]];
+      activeSheet.getRange(CELLS.draftStatus).format.fill.color = "#ffffff";
+      activeSheet.getRange(CELLS.draftStatus).format.font.color = "#000000";
+      await context.sync();
+
+      activeSheet = workbook.worksheets.getItem(nextSheetName);
     } else {
       const existing = await findInvoiceRow(context, transactions, invoiceNumber);
       if (existing !== null) {
