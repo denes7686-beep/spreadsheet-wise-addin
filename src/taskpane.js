@@ -182,11 +182,13 @@ async function submitInvoice() {
     const activeSheet = workbook.worksheets.getActiveWorksheet();
     const config = workbook.worksheets.getItem(SHEETS.configuration);
     const transactions = workbook.worksheets.getItem(SHEETS.transactions);
+    const statusRange = activeSheet.getRange(CELLS.draftStatus);
+    const lastInvoiceRange = config.getRange(CELLS.lastInvoiceNumber);
 
     activeSheet.load("name");
     workbook.worksheets.load("items/name");
-    config.getRange(CELLS.lastInvoiceNumber).load("values");
-    activeSheet.getRange(CELLS.draftStatus).load("values");
+    statusRange.load("values");
+    lastInvoiceRange.load("values");
     await context.sync();
 
     const sheetName = activeSheet.name;
@@ -194,9 +196,9 @@ async function submitInvoice() {
       throw new Error("Open an invoice sheet first.");
     }
 
-    let invoiceNumber = activeSheet.getRange(CELLS.draftStatus).values[0][0];
+    let invoiceNumber = statusRange.values[0][0];
     if (invoiceNumber === "DRAFT" || sheetName.startsWith("New Invoice")) {
-      const lastInvoiceNumber = Number(config.getRange(CELLS.lastInvoiceNumber).values[0][0] || 0);
+      const lastInvoiceNumber = Number(lastInvoiceRange.values[0][0] || 0);
       invoiceNumber = lastInvoiceNumber + 1;
       const nextSheetName = `Invoice ${invoiceNumber}`;
       const existingNames = workbook.worksheets.items.map((sheet) => sheet.name);
@@ -204,11 +206,11 @@ async function submitInvoice() {
         throw new Error(`Sheet ${nextSheetName} already exists.`);
       }
 
-      activeSheet.getRange(CELLS.draftStatus).values = [[invoiceNumber]];
+      statusRange.values = [[invoiceNumber]];
       activeSheet.name = nextSheetName;
-      config.getRange(CELLS.lastInvoiceNumber).values = [[invoiceNumber]];
-      activeSheet.getRange(CELLS.draftStatus).format.fill.color = "#ffffff";
-      activeSheet.getRange(CELLS.draftStatus).format.font.color = "#000000";
+      lastInvoiceRange.values = [[invoiceNumber]];
+      statusRange.format.fill.color = "#ffffff";
+      statusRange.format.font.color = "#000000";
     } else {
       const existing = await findInvoiceRow(context, transactions, invoiceNumber);
       if (existing !== null) {
@@ -246,6 +248,10 @@ async function addToTransactionsInternal(context, invoiceSheet, transactionsShee
   const tax = getCellValueFromMatrix(rows, "Tax");
   const netAmount = getCellValueFromMatrix(rows, "Adjusted Subtotal");
 
+  if (issueDate === null || dueDate === null) {
+    throw new Error("Could not read invoice dates from the sheet.");
+  }
+
   const nextRow = await getNextTransactionRow(context, transactionsSheet);
 
   transactionsSheet.getRange(`${TRANSACTION_COLUMNS.invoiceNumber}${nextRow}`).values = [[invoiceNumber]];
@@ -258,8 +264,12 @@ async function addToTransactionsInternal(context, invoiceSheet, transactionsShee
 }
 
 async function findInvoiceRow(context, transactionsSheet, invoiceNumber) {
-  const nextRow = await getNextTransactionRow(context, transactionsSheet);
-  const range = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${Math.max(nextRow - 1, TRANSACTION_START_ROW)}`);
+  const lastOccupiedRow = await getLastOccupiedTransactionRow(context, transactionsSheet);
+  if (lastOccupiedRow < TRANSACTION_START_ROW) {
+    return null;
+  }
+
+  const range = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${lastOccupiedRow}`);
   range.load("values");
   await context.sync();
 
@@ -273,12 +283,17 @@ async function findInvoiceRow(context, transactionsSheet, invoiceNumber) {
 }
 
 async function getNextTransactionRow(context, transactionsSheet) {
+  const lastOccupiedRow = await getLastOccupiedTransactionRow(context, transactionsSheet);
+  return Math.max(TRANSACTION_START_ROW, lastOccupiedRow + 1);
+}
+
+async function getLastOccupiedTransactionRow(context, transactionsSheet) {
   const usedRange = transactionsSheet.getUsedRange();
   usedRange.load("rowCount");
   await context.sync();
 
   if (usedRange.rowCount < TRANSACTION_START_ROW) {
-    return TRANSACTION_START_ROW;
+    return TRANSACTION_START_ROW - 1;
   }
 
   const probeRange = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${usedRange.rowCount}`);
@@ -293,7 +308,11 @@ async function getNextTransactionRow(context, transactionsSheet) {
     }
   }
 
-  return TRANSACTION_START_ROW + lastUsedOffset + 1;
+  if (lastUsedOffset < 0) {
+    return TRANSACTION_START_ROW - 1;
+  }
+
+  return TRANSACTION_START_ROW + lastUsedOffset;
 }
 
 function repeatFormatMatrix(rows, columns, format) {
