@@ -94,6 +94,15 @@ function formatError(error) {
   return parts.join("\n");
 }
 
+function appendStage(error, stage) {
+  if (!error || typeof error !== "object") {
+    return new Error(`[${stage}] ${String(error)}`);
+  }
+
+  error.message = `[${stage}] ${error.message || error}`;
+  return error;
+}
+
 async function validateWorkbook() {
   await Excel.run(async (context) => {
     const worksheets = context.workbook.worksheets;
@@ -206,144 +215,164 @@ async function createNewInvoice() {
 
 async function submitInvoice() {
   await Excel.run(async (context) => {
-    const workbook = context.workbook;
-    let activeSheet = workbook.worksheets.getActiveWorksheet();
-    const config = workbook.worksheets.getItem(SHEETS.configuration);
-    const transactions = workbook.worksheets.getItem(SHEETS.transactions);
-    const statusRange = activeSheet.getRange(CELLS.draftStatus);
-    const lastInvoiceRange = config.getRange(CELLS.lastInvoiceNumber);
+    try {
+      const workbook = context.workbook;
+      let activeSheet = workbook.worksheets.getActiveWorksheet();
+      const config = workbook.worksheets.getItem(SHEETS.configuration);
+      const transactions = workbook.worksheets.getItem(SHEETS.transactions);
+      const statusRange = activeSheet.getRange(CELLS.draftStatus);
+      const lastInvoiceRange = config.getRange(CELLS.lastInvoiceNumber);
 
-    activeSheet.load("name");
-    workbook.worksheets.load("items/name");
-    statusRange.load("values");
-    lastInvoiceRange.load("values");
-    await context.sync();
-
-    const sheetName = activeSheet.name;
-    if (!sheetName.startsWith("New Invoice") && !sheetName.startsWith("Invoice ")) {
-      throw new Error("Open an invoice sheet first.");
-    }
-
-    let invoiceNumber = statusRange.values[0][0];
-    if (invoiceNumber === "DRAFT" || sheetName.startsWith("New Invoice")) {
-      const lastInvoiceNumber = Number(lastInvoiceRange.values[0][0] || 0);
-      invoiceNumber = lastInvoiceNumber + 1;
-      const nextSheetName = `Invoice ${invoiceNumber}`;
-      const existingNames = workbook.worksheets.items.map((sheet) => sheet.name);
-      if (existingNames.includes(nextSheetName)) {
-        throw new Error(`Sheet ${nextSheetName} already exists.`);
-      }
-
-      statusRange.values = [[invoiceNumber]];
-      activeSheet.name = nextSheetName;
-      lastInvoiceRange.values = [[invoiceNumber]];
-      statusRange.format.fill.color = "#ffffff";
-      statusRange.format.font.color = "#000000";
+      activeSheet.load("name");
+      workbook.worksheets.load("items/name");
+      statusRange.load("values");
+      lastInvoiceRange.load("values");
       await context.sync();
 
-      activeSheet = workbook.worksheets.getItem(nextSheetName);
-    } else {
-      const existing = await findInvoiceRow(context, transactions, invoiceNumber);
-      if (existing !== null) {
-        throw new Error(`Invoice #${invoiceNumber} is already in Transactions.`);
+      const sheetName = activeSheet.name;
+      if (!sheetName.startsWith("New Invoice") && !sheetName.startsWith("Invoice ")) {
+        throw new Error("Open an invoice sheet first.");
       }
+
+      let invoiceNumber = statusRange.values[0][0];
+      if (invoiceNumber === "DRAFT" || sheetName.startsWith("New Invoice")) {
+        const lastInvoiceNumber = Number(lastInvoiceRange.values[0][0] || 0);
+        invoiceNumber = lastInvoiceNumber + 1;
+        const nextSheetName = `Invoice ${invoiceNumber}`;
+        const existingNames = workbook.worksheets.items.map((sheet) => sheet.name);
+        if (existingNames.includes(nextSheetName)) {
+          throw new Error(`Sheet ${nextSheetName} already exists.`);
+        }
+
+        statusRange.values = [[invoiceNumber]];
+        activeSheet.name = nextSheetName;
+        lastInvoiceRange.values = [[invoiceNumber]];
+        statusRange.format.fill.color = "#ffffff";
+        statusRange.format.font.color = "#000000";
+        await context.sync();
+
+        activeSheet = workbook.worksheets.getItem(nextSheetName);
+      } else {
+        const existing = await findInvoiceRow(context, transactions, invoiceNumber, "submit:find-existing");
+        if (existing !== null) {
+          throw new Error(`Invoice #${invoiceNumber} is already in Transactions.`);
+        }
+      }
+
+      await addToTransactionsInternal(context, activeSheet, transactions, invoiceNumber);
+      await context.sync();
+
+      setStatus(
+        `Invoice #${invoiceNumber} submitted.\nWorkbook actions are complete.\nEmail and PDF steps should be added in phase 2.`
+      );
+    } catch (error) {
+      throw appendStage(error, "submitInvoice");
     }
-
-    await addToTransactionsInternal(context, activeSheet, transactions, invoiceNumber);
-    await context.sync();
-
-    setStatus(
-      `Invoice #${invoiceNumber} submitted.\nWorkbook actions are complete.\nEmail and PDF steps should be added in phase 2.`
-    );
   });
 }
 
 async function addToTransactionsInternal(context, invoiceSheet, transactionsSheet, invoiceNumber) {
-  const existing = await findInvoiceRow(context, transactionsSheet, invoiceNumber);
-  if (existing !== null) {
-    return;
+  try {
+    const existing = await findInvoiceRow(context, transactionsSheet, invoiceNumber, "addToTransactions:find-existing");
+    if (existing !== null) {
+      return;
+    }
+
+    const invoiceData = invoiceSheet.getUsedRange();
+    invoiceData.load("values");
+
+    const clientRange = invoiceSheet.getRange(CELLS.clientDisplay);
+    clientRange.load("values");
+    await context.sync();
+
+    const rows = invoiceData.values;
+    const client = clientRange.values[0][0];
+    const issueDate = getCellValueFromMatrix(rows, "Date of Issue");
+    const dueDate = getCellValueFromMatrix(rows, "Date Due");
+    const total = getCellValueFromMatrix(rows, "Total");
+    const tax = getCellValueFromMatrix(rows, "Tax");
+    const netAmount = getCellValueFromMatrix(rows, "Adjusted Subtotal");
+
+    if (issueDate === null || dueDate === null) {
+      throw new Error("Could not read invoice dates from the sheet.");
+    }
+
+    const nextRow = await getNextTransactionRow(context, transactionsSheet);
+
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.invoiceNumber}${nextRow}`).values = [[invoiceNumber]];
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.issueDate}${nextRow}`).values = [[issueDate]];
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.client}${nextRow}`).values = [[client]];
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.dueDate}${nextRow}`).values = [[dueDate]];
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.total}${nextRow}`).values = [[total]];
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.tax}${nextRow}`).values = [[tax]];
+    transactionsSheet.getRange(`${TRANSACTION_COLUMNS.netAmount}${nextRow}`).values = [[netAmount]];
+  } catch (error) {
+    throw appendStage(error, "addToTransactionsInternal");
   }
-
-  const invoiceData = invoiceSheet.getUsedRange();
-  invoiceData.load("values");
-
-  const clientRange = invoiceSheet.getRange(CELLS.clientDisplay);
-  clientRange.load("values");
-  await context.sync();
-
-  const rows = invoiceData.values;
-  const client = clientRange.values[0][0];
-  const issueDate = getCellValueFromMatrix(rows, "Date of Issue");
-  const dueDate = getCellValueFromMatrix(rows, "Date Due");
-  const total = getCellValueFromMatrix(rows, "Total");
-  const tax = getCellValueFromMatrix(rows, "Tax");
-  const netAmount = getCellValueFromMatrix(rows, "Adjusted Subtotal");
-
-  if (issueDate === null || dueDate === null) {
-    throw new Error("Could not read invoice dates from the sheet.");
-  }
-
-  const nextRow = await getNextTransactionRow(context, transactionsSheet);
-
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.invoiceNumber}${nextRow}`).values = [[invoiceNumber]];
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.issueDate}${nextRow}`).values = [[issueDate]];
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.client}${nextRow}`).values = [[client]];
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.dueDate}${nextRow}`).values = [[dueDate]];
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.total}${nextRow}`).values = [[total]];
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.tax}${nextRow}`).values = [[tax]];
-  transactionsSheet.getRange(`${TRANSACTION_COLUMNS.netAmount}${nextRow}`).values = [[netAmount]];
 }
 
-async function findInvoiceRow(context, transactionsSheet, invoiceNumber) {
-  const lastOccupiedRow = await getLastOccupiedTransactionRow(context, transactionsSheet);
-  if (lastOccupiedRow < TRANSACTION_START_ROW) {
-    return null;
-  }
-
-  const range = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${lastOccupiedRow}`);
-  range.load("values");
-  await context.sync();
-
-  for (let index = 0; index < range.values.length; index += 1) {
-    if (String(range.values[index][0]) === String(invoiceNumber)) {
-      return TRANSACTION_START_ROW + index;
+async function findInvoiceRow(context, transactionsSheet, invoiceNumber, stageLabel = "findInvoiceRow") {
+  try {
+    const lastOccupiedRow = await getLastOccupiedTransactionRow(context, transactionsSheet);
+    if (lastOccupiedRow < TRANSACTION_START_ROW) {
+      return null;
     }
-  }
 
-  return null;
+    const range = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${lastOccupiedRow}`);
+    range.load("values");
+    await context.sync();
+
+    for (let index = 0; index < range.values.length; index += 1) {
+      if (String(range.values[index][0]) === String(invoiceNumber)) {
+        return TRANSACTION_START_ROW + index;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    throw appendStage(error, stageLabel);
+  }
 }
 
 async function getNextTransactionRow(context, transactionsSheet) {
-  const lastOccupiedRow = await getLastOccupiedTransactionRow(context, transactionsSheet);
-  return Math.max(TRANSACTION_START_ROW, lastOccupiedRow + 1);
+  try {
+    const lastOccupiedRow = await getLastOccupiedTransactionRow(context, transactionsSheet);
+    return Math.max(TRANSACTION_START_ROW, lastOccupiedRow + 1);
+  } catch (error) {
+    throw appendStage(error, "getNextTransactionRow");
+  }
 }
 
 async function getLastOccupiedTransactionRow(context, transactionsSheet) {
-  const usedRange = transactionsSheet.getUsedRange();
-  usedRange.load("rowCount");
-  await context.sync();
+  try {
+    const usedRange = transactionsSheet.getUsedRange();
+    usedRange.load("rowCount");
+    await context.sync();
 
-  if (usedRange.rowCount < TRANSACTION_START_ROW) {
-    return TRANSACTION_START_ROW - 1;
-  }
-
-  const probeRange = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${usedRange.rowCount}`);
-  probeRange.load("values");
-  await context.sync();
-
-  let lastUsedOffset = -1;
-  for (let index = 0; index < probeRange.values.length; index += 1) {
-    const value = probeRange.values[index][0];
-    if (value !== "" && value !== null && value !== undefined) {
-      lastUsedOffset = index;
+    if (usedRange.rowCount < TRANSACTION_START_ROW) {
+      return TRANSACTION_START_ROW - 1;
     }
-  }
 
-  if (lastUsedOffset < 0) {
-    return TRANSACTION_START_ROW - 1;
-  }
+    const probeRange = transactionsSheet.getRange(`B${TRANSACTION_START_ROW}:B${usedRange.rowCount}`);
+    probeRange.load("values");
+    await context.sync();
 
-  return TRANSACTION_START_ROW + lastUsedOffset;
+    let lastUsedOffset = -1;
+    for (let index = 0; index < probeRange.values.length; index += 1) {
+      const value = probeRange.values[index][0];
+      if (value !== "" && value !== null && value !== undefined) {
+        lastUsedOffset = index;
+      }
+    }
+
+    if (lastUsedOffset < 0) {
+      return TRANSACTION_START_ROW - 1;
+    }
+
+    return TRANSACTION_START_ROW + lastUsedOffset;
+  } catch (error) {
+    throw appendStage(error, "getLastOccupiedTransactionRow");
+  }
 }
 
 function repeatFormatMatrix(rows, columns, format) {
