@@ -15,7 +15,7 @@
   <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon.svg"/>
   <SupportUrl DefaultValue="https://localhost:3000/src/support.html"/>
   <AppDomains>
-    <AppDomain>https://localhost:3000</AppDomain>
+    <AppDomain>https://denes7686-beep.github.io/spreadsheet-wise-addin/</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Workbook"/>
