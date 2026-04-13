@@ -153,16 +153,19 @@ async function createNewInvoice() {
     const today = new Date();
     const dueDate = new Date(today);
     dueDate.setDate(dueDate.getDate() + paymentTerms);
+    const issueDateSerial = toExcelDateSerial(today);
+    const dueDateSerial = toExcelDateSerial(dueDate);
+    const dateNumberFormat = dateFormat === "dayFirst" ? "dd/mm/yyyy" : "mm/dd/yyyy";
 
     copiedSheet.getRange(CELLS.draftStatus).values = [["DRAFT"]];
-    copiedSheet.getRange(CELLS.issueDate).values = [[today]];
-    copiedSheet.getRange(CELLS.dueDate).values = [[dueDate]];
+    copiedSheet.getRange(CELLS.issueDate).values = [[issueDateSerial]];
+    copiedSheet.getRange(CELLS.dueDate).values = [[dueDateSerial]];
     copiedSheet.getRange(CELLS.draftStatus).format.fill.color = "#ffcccc";
     copiedSheet.getRange(CELLS.draftStatus).format.font.color = "#cc0000";
     copiedSheet.getRange(CELLS.draftStatus).format.font.bold = true;
     copiedSheet.getRange("C6:C7").numberFormat = [
-      [dateFormat === "dayFirst" ? "dd/mm/yyyy" : "mm/dd/yyyy"],
-      [dateFormat === "dayFirst" ? "dd/mm/yyyy" : "mm/dd/yyyy"],
+      [dateNumberFormat],
+      [dateNumberFormat],
     ];
 
     copiedSheet.activate();
@@ -303,6 +306,11 @@ function repeatFormatMatrix(rows, columns, format) {
     matrix.push(row);
   }
   return matrix;
+}
+
+function toExcelDateSerial(date) {
+  const utcMidnight = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return utcMidnight / 86400000 + 25569;
 }
 
 function getCellValueFromMatrix(matrix, label) {
