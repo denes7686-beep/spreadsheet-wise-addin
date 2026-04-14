@@ -5,16 +5,16 @@
     <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Spreadsheet Wise Invoice</title>
-    <link rel="stylesheet" href="./taskpane.css?v=2" />
+    <link rel="stylesheet" href="./taskpane.css?v=3" />
     <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   </head>
   <body>
     <main class="app-shell">
       <section class="hero">
         <p class="eyebrow">Spreadsheet Wise</p>
-        <h1>Invoice Control Panel</h1>
+        <h1>Invoice Workspace</h1>
         <p class="lede">
-          This MVP ports the workbook logic from Google Apps Script into an Office Add-in for Excel Online.
+          Create a new invoice from the template, review it, and submit it to the transactions register.
         </p>
       </section>
 
@@ -23,26 +23,30 @@
         <div id="statusMessage" class="status-message">Loading Office runtime...</div>
       </section>
 
-      <section class="button-grid">
-        <button id="validateWorkbook">Validate Workbook</button>
-        <button id="updateFormats">Update Formats</button>
-        <button id="createInvoice">Create New Invoice</button>
-        <button id="submitInvoice">Submit Invoice</button>
-        <button id="saveWorkbook">Save Workbook</button>
-        <button id="prepareEmail">Prepare Email</button>
+      <section class="button-grid primary-actions">
+        <button id="createInvoice" class="primary-button">Create New Invoice</button>
+        <button id="submitInvoice" class="primary-button">Submit Invoice</button>
+      </section>
+
+      <section class="tools-card">
+        <div class="status-heading">Tools</div>
+        <div class="tool-actions">
+          <button id="updateFormats" class="secondary-button">Refresh Formats</button>
+          <button id="validateWorkbook" class="secondary-button">Validate Workbook</button>
+        </div>
       </section>
 
       <section class="notes">
-        <h2>MVP notes</h2>
+        <h2>Stable Flow</h2>
         <ul>
-          <li>PDF export from Excel Online still needs a manual save or print step.</li>
-          <li>Use Submit first, then save the workbook, then print or save as PDF from Excel.</li>
-          <li>The workbook must keep the current sheet names and key cell locations.</li>
-          <li>This add-in is designed around the `Spreadsheet Wise.xlsx` template.</li>
+          <li>Create a draft invoice from the template.</li>
+          <li>Edit the invoice directly in Excel.</li>
+          <li>Submit it to assign a final number and write it to `Transactions`.</li>
+          <li>Keep the workbook sheet names and key cells unchanged.</li>
         </ul>
       </section>
     </main>
 
-    <script src="./taskpane.js?v=2"></script>
+    <script src="./taskpane.js?v=3"></script>
   </body>
 </html>
