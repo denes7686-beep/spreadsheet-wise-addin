@@ -42,6 +42,7 @@ function bindEvents() {
   document.getElementById("updateFormats").addEventListener("click", () => runAction(updateFormats));
   document.getElementById("createInvoice").addEventListener("click", () => runAction(createNewInvoice));
   document.getElementById("submitInvoice").addEventListener("click", () => runAction(submitInvoice));
+  document.getElementById("downloadPdf").addEventListener("click", () => runAction(downloadPdf));
 }
 
 async function runAction(action) {
@@ -301,6 +302,37 @@ async function getInvoiceSummary(context, invoiceSheet) {
   };
 }
 
+async function downloadPdf() {
+  const filename = await Excel.run(async (context) => {
+    const workbook = context.workbook;
+    const activeSheet = workbook.worksheets.getActiveWorksheet();
+    const invoiceNumberRange = activeSheet.getRange(CELLS.draftStatus);
+
+    activeSheet.load("name");
+    invoiceNumberRange.load("values");
+    await context.sync();
+
+    const sheetName = activeSheet.name;
+    if (!sheetName.startsWith("New Invoice") && !sheetName.startsWith("Invoice ")) {
+      throw new Error("Open an invoice sheet first before downloading PDF.");
+    }
+
+    const invoiceNumber = invoiceNumberRange.values[0][0];
+    return `Invoice-${invoiceNumber || "draft"}.pdf`;
+  });
+
+  const file = await getOfficeFileAsync(Office.FileType.Pdf);
+  const base64 = await readOfficeFileAsBase64(file);
+  triggerBrowserDownload(base64, filename, "application/pdf");
+
+  setStatus(
+    [
+      `PDF download started: ${filename}`,
+      "This export is a host test and may contain the full workbook instead of only the current invoice sheet.",
+    ].join("\n")
+  );
+}
+
 async function addToTransactionsInternal(context, invoiceSheet, transactionsSheet, invoiceNumber) {
   try {
     const existing = await findInvoiceRow(context, transactionsSheet, invoiceNumber, "addToTransactions:find-existing");
@@ -437,4 +469,65 @@ function getCellValueFromMatrix(matrix, label) {
   }
 
   return null;
+}
+
+function getOfficeFileAsync(fileType) {
+  return new Promise((resolve, reject) => {
+    Office.context.document.getFileAsync(fileType, { sliceSize: 65536 }, (result) => {
+      if (result.status === Office.AsyncResultStatus.Succeeded) {
+        resolve(result.value);
+      } else {
+        reject(result.error);
+      }
+    });
+  });
+}
+
+async function readOfficeFileAsBase64(file) {
+  try {
+    const sliceCount = file.sliceCount;
+    const parts = [];
+
+    for (let index = 0; index < sliceCount; index += 1) {
+      const slice = await getSliceAsync(file, index);
+      parts.push(uint8ToBinary(slice.data));
+    }
+
+    return btoa(parts.join(""));
+  } finally {
+    file.closeAsync();
+  }
+}
+
+function getSliceAsync(file, sliceIndex) {
+  return new Promise((resolve, reject) => {
+    file.getSliceAsync(sliceIndex, (result) => {
+      if (result.status === Office.AsyncResultStatus.Succeeded) {
+        resolve(result.value);
+      } else {
+        reject(result.error);
+      }
+    });
+  });
+}
+
+function uint8ToBinary(data) {
+  const chunkSize = 8192;
+  let binary = "";
+
+  for (let index = 0; index < data.length; index += chunkSize) {
+    const chunk = data.slice(index, index + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+
+  return binary;
+}
+
+function triggerBrowserDownload(base64, filename, mimeType) {
+  const link = document.createElement("a");
+  link.href = `data:${mimeType};base64,${base64}`;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
