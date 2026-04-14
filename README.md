@@ -10,12 +10,14 @@ Implemented in the add-in:
 - `Submit Invoice`
 - `Add To Transactions`
 - `Update Formats`
+- `Save Workbook`
+- `Prepare Email`
 - workbook validation for required sheets
 
 Deferred to phase 2:
 
-- sending email
-- generating PDF
+- fully automated email sending
+- automatic PDF generation
 - saving PDF to OneDrive or SharePoint
 - storing public PDF links
 
@@ -73,3 +75,12 @@ For `Send Email + PDF + Storage`, use one of these:
 - Office Add-in + lightweight backend API
 
 For the fastest MVP, I recommend `Office Add-in + Power Automate`.
+
+## Current manual send flow
+
+1. Create and finalize the invoice in Excel.
+2. Click `Submit Invoice`.
+3. Click `Save Workbook` to prompt a local save.
+4. In Excel, use `File > Print` or `Save As` to create a PDF.
+5. Click `Prepare Email` to get the recipient, subject, and message draft.
+6. Send the PDF manually from your email client.
