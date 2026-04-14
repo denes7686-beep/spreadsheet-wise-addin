@@ -42,6 +42,8 @@ function bindEvents() {
   document.getElementById("updateFormats").addEventListener("click", () => runAction(updateFormats));
   document.getElementById("createInvoice").addEventListener("click", () => runAction(createNewInvoice));
   document.getElementById("submitInvoice").addEventListener("click", () => runAction(submitInvoice));
+  document.getElementById("saveWorkbook").addEventListener("click", () => runAction(saveWorkbookPrompt));
+  document.getElementById("prepareEmail").addEventListener("click", () => runAction(prepareEmail));
 }
 
 async function runAction(action) {
@@ -262,13 +264,96 @@ async function submitInvoice() {
       await addToTransactionsInternal(context, activeSheet, transactions, invoiceNumber);
       await context.sync();
 
+      const summary = await getInvoiceSummary(context, activeSheet);
       setStatus(
-        `Invoice #${invoiceNumber} submitted.\nWorkbook actions are complete.\nEmail and PDF steps should be added in phase 2.`
+        [
+          `Invoice #${invoiceNumber} submitted.`,
+          `Client: ${summary.clientName || "Unknown client"}`,
+          `Email: ${summary.email || "No email found"}`,
+          `Total: ${summary.total ?? "Unknown total"}`,
+          "",
+          "Next steps:",
+          "1. Click Save Workbook",
+          "2. In Excel use File > Print or Save As > PDF",
+          "3. Use Prepare Email to copy the send details",
+        ].join("\n")
       );
     } catch (error) {
       throw appendStage(error, "submitInvoice");
     }
   });
+}
+
+async function saveWorkbookPrompt() {
+  await Excel.run(async (context) => {
+    context.workbook.save(Excel.SaveBehavior.prompt);
+    await context.sync();
+
+    setStatus(
+      [
+        "Workbook save prompt opened.",
+        "After saving the file, use Excel File > Print or Save As to create the PDF.",
+      ].join("\n")
+    );
+  });
+}
+
+async function prepareEmail() {
+  await Excel.run(async (context) => {
+    const workbook = context.workbook;
+    const activeSheet = workbook.worksheets.getActiveWorksheet();
+    const config = workbook.worksheets.getItem(SHEETS.configuration);
+
+    activeSheet.load("name");
+    config.getRange("F4").load("values");
+    config.getRange("F5").load("values");
+    await context.sync();
+
+    if (!activeSheet.name.startsWith("New Invoice") && !activeSheet.name.startsWith("Invoice ")) {
+      throw new Error("Open an invoice sheet first.");
+    }
+
+    const summary = await getInvoiceSummary(context, activeSheet);
+    const subjectPrefix = config.getRange("F4").values[0][0] || "Invoice";
+    const bodyTemplate = config.getRange("F5").values[0][0] || "Please find the invoice attached.";
+    const invoiceNumber = summary.invoiceNumber || "";
+    const subject = `${subjectPrefix} ${invoiceNumber}`.trim();
+    const messageLines = [
+      `To: ${summary.email || "[enter client email]"}`,
+      `Subject: ${subject}`,
+      "",
+      `Hi ${summary.clientName || "Client"},`,
+      "",
+      `${bodyTemplate}`,
+      "",
+      `Suggested PDF file name: Invoice ${invoiceNumber || "draft"}.pdf`,
+    ];
+
+    setStatus(messageLines.join("\n"));
+  });
+}
+
+async function getInvoiceSummary(context, invoiceSheet) {
+  const usedRange = invoiceSheet.getUsedRange();
+  const clientNameRange = invoiceSheet.getRange(CELLS.clientName);
+  const emailRange = invoiceSheet.getRange(CELLS.clientEmail);
+  const invoiceNumberRange = invoiceSheet.getRange(CELLS.draftStatus);
+
+  usedRange.load("values");
+  clientNameRange.load("values");
+  emailRange.load("values");
+  invoiceNumberRange.load("values");
+  await context.sync();
+
+  const rows = usedRange.values;
+  return {
+    invoiceNumber: invoiceNumberRange.values[0][0],
+    clientName: clientNameRange.values[0][0],
+    email: emailRange.values[0][0],
+    total: getCellValueFromMatrix(rows, "Total"),
+    dueDate: getCellValueFromMatrix(rows, "Date Due"),
+    issueDate: getCellValueFromMatrix(rows, "Date of Issue"),
+  };
 }
 
 async function addToTransactionsInternal(context, invoiceSheet, transactionsSheet, invoiceNumber) {
