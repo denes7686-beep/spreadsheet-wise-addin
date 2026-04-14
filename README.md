@@ -4,20 +4,18 @@ This folder contains a first-pass Office Add-in scaffold for migrating the curre
 
 ## Scope of this MVP
 
-Implemented in the add-in:
+Implemented in the stable base version:
 
 - `Create New Invoice`
 - `Submit Invoice`
 - `Add To Transactions`
 - `Update Formats`
-- `Save Workbook`
-- `Prepare Email`
 - workbook validation for required sheets
 
-Deferred to phase 2:
+Deferred to later phases:
 
-- fully automated email sending
-- automatic PDF generation
+- PDF export workflow
+- email workflow
 - saving PDF to OneDrive or SharePoint
 - storing public PDF links
 
@@ -76,11 +74,21 @@ For `Send Email + PDF + Storage`, use one of these:
 
 For the fastest MVP, I recommend `Office Add-in + Power Automate`.
 
-## Current manual send flow
+## Current stable flow
 
 1. Create and finalize the invoice in Excel.
 2. Click `Submit Invoice`.
-3. Click `Save Workbook` to prompt a local save.
-4. In Excel, use `File > Print` or `Save As` to create a PDF.
-5. Click `Prepare Email` to get the recipient, subject, and message draft.
-6. Send the PDF manually from your email client.
+3. Review the saved row in `Transactions`.
+
+## Saving a stable version
+
+Recommended:
+
+1. Keep this exact `office-addin` folder in GitHub.
+2. Create a separate backup copy named something like `office-addin-stable-v1`.
+3. When you start future changes, work in the main folder and leave the stable copy untouched.
+
+Best long-term option:
+
+- create a GitHub release or a separate `stable-v1` branch
+- keep a zip backup of the stable folder on your computer
